@@ -101,7 +101,7 @@ STRINGS = {
         "tip_pitot_stuck": "Airspeed sensor reports a constant speed\nregardless of actual vehicle speed.\nSIM_ARSPD_FAIL",
         "tip_pitot_reversed": "Simulates swapped pitot and static\nport connections. Airspeed reads\nnegative of actual value.\nSIM_ARSPD_SIGN",
         "tip_pitot_noise": "Adds large random noise to the sensor.\nMakes readings unreliable.\nSIM_ARSPD_RND",
-        "tip_pitot_fix_type": "Your params have ARSPD_TYPE=8 (MSP)\nwhich doesn't work in SITL.\nThis sets ARSPD_TYPE=0 (analog)\nso failure simulation works.",
+        "tip_pitot_fix_type": "Your params have ARSPD_TYPE=8 (MSP)\nwhich doesn't work in SITL.\nSets ARSPD_TYPE=2 (analog) + ARSPD_PIN=1.\nREQUIRES SITL RESTART to take effect.",
     },
     "ru": {
         "title": "SITL Fault Injection",
@@ -722,10 +722,17 @@ class App(tk.Tk):
         return fr
 
     def _fix_arspd_type(self):
-        """Set ARSPD_TYPE=0 (analog) so SITL airspeed sensor works"""
-        self._run_safe(lambda: [
-            self.conn.set_param("ARSPD_TYPE", 0),
-        ])
+        """Set ARSPD_TYPE=2 (analog), ARSPD_PIN=1 for SITL, then warn about reboot"""
+        def do():
+            self.conn.set_param("ARSPD_TYPE", 2)
+            self.conn.set_param("ARSPD_PIN", 1)
+        self._run_safe(do)
+        messagebox.showinfo(
+            "Reboot required",
+            "ARSPD_TYPE and ARSPD_PIN changed.\n\n"
+            "You MUST restart SITL for this to take effect.\n"
+            "Restart ArduPlane.exe, then reconnect."
+        )
 
     def _apply_pitot(self):
         mode = self.pitot_mode_var.get()
@@ -734,20 +741,22 @@ class App(tk.Tk):
             # reset all first
             self.conn.set_param("SIM_ARSPD_FAIL", 0)
             self.conn.set_param("SIM_ARSPD_FAILP", 0)
+            self.conn.set_param("SIM_ARSPD_PITOT", 0)
             self.conn.set_param("SIM_ARSPD_SIGN", 0)
             self.conn.set_param("SIM_ARSPD_RND", 2)  # default noise
+            time.sleep(0.1)
 
             if mode == "blocked":
-                # blocked pitot: set fail_pressure to atmospheric (~101325 Pa)
-                # this freezes the reading at whatever pressure is in the tube
-                p = self.arspd_failp.get()
-                if p == 0:
-                    p = 101325  # standard atmosphere = zero airspeed
-                self.conn.set_param("SIM_ARSPD_FAILP", p)
+                # Blocked pitot tube: set FAILP equal to current barometric pressure
+                # so tube_pressure = |baro - baro + 0| = 0 → airspeed reads ~0
+                # SITL code: tube_pressure = abs(FAILP - baro + PITOT)
+                # Setting FAILP = baro (~101325) and PITOT = 0 gives tube_pressure ≈ 0
+                self.conn.set_param("SIM_ARSPD_FAILP", 101325)
+                self.conn.set_param("SIM_ARSPD_PITOT", 0)
             elif mode == "stuck":
                 val = self.arspd_fail.get()
-                if val == 0:
-                    val = 1  # must be >0 to activate
+                if val < 0.1:
+                    val = 0.1  # must be >0 to activate (is_positive check)
                 self.conn.set_param("SIM_ARSPD_FAIL", val)
             elif mode == "reversed":
                 self.conn.set_param("SIM_ARSPD_SIGN", 1)
@@ -763,6 +772,7 @@ class App(tk.Tk):
         self._run_safe(lambda: [
             self.conn.set_param("SIM_ARSPD_FAIL", 0),
             self.conn.set_param("SIM_ARSPD_FAILP", 0),
+            self.conn.set_param("SIM_ARSPD_PITOT", 0),
             self.conn.set_param("SIM_ARSPD_SIGN", 0),
             self.conn.set_param("SIM_ARSPD_RND", 2),
         ])

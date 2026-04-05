@@ -16,7 +16,17 @@ L = {
     "connected":"Connected","disconnected":"Disconnected","connecting":"Connecting...",
     "failed":"Failed","lang":"RU","no_conn":"Connect to SITL first.",
     "tab_wind":"Wind","tab_gps":"GPS","tab_baro":"Baro","tab_pitot":"Pitot",
-    "tab_sensors":"Sensors","tab_complex":"Complex",
+    "tab_sensors":"Sensors","tab_complex":"Complex","tab_system":"System",
+    "sys_sim_speed":"Simulation Speed","sys_speedup":"Speed multiplier",
+    "sys_speed_presets":"Presets",
+    "sys_batt":"Battery Simulation",
+    "sys_batt_v":"Voltage (V)","sys_batt_cap":"Capacity (Ah)",
+    "sys_batt_start_v":"Start voltage (V)","sys_batt_end_v":"End voltage (V)",
+    "sys_batt_time":"Discharge time (min)","sys_batt_curve":"Curve",
+    "sys_batt_linear":"Linear","sys_batt_lipo":"LiPo (realistic)",
+    "sys_batt_start":"Start Discharge","sys_batt_stop":"Stop",
+    "sys_batt_reset":"Reset to 12.6V","sys_batt_now":"Current voltage",
+    "sys_batt_running":"DISCHARGING","sys_batt_idle":"Idle",
     "wind_spd":"Speed (m/s)","wind_dir":"Direction (deg)","wind_turb":"Turbulence (m/s)",
     "wind_dir_z":"Vertical angle (deg)",
     "apply":"Apply","reset":"Reset","start":"Start","stop":"Stop",
@@ -74,7 +84,17 @@ L = {
     "connected":"Подключено","disconnected":"Отключено","connecting":"Подключение...",
     "failed":"Ошибка","lang":"EN","no_conn":"Сначала подключитесь к SITL.",
     "tab_wind":"Ветер","tab_gps":"GPS","tab_baro":"Баро","tab_pitot":"ПВД",
-    "tab_sensors":"Датчики","tab_complex":"Комплекс",
+    "tab_sensors":"Датчики","tab_complex":"Комплекс","tab_system":"Система",
+    "sys_sim_speed":"Скорость симуляции","sys_speedup":"Множитель скорости",
+    "sys_speed_presets":"Пресеты",
+    "sys_batt":"Симуляция батареи",
+    "sys_batt_v":"Напряжение (В)","sys_batt_cap":"Ёмкость (Ач)",
+    "sys_batt_start_v":"Старт напряжение (В)","sys_batt_end_v":"Конечное (В)",
+    "sys_batt_time":"Время разряда (мин)","sys_batt_curve":"Кривая",
+    "sys_batt_linear":"Линейная","sys_batt_lipo":"LiPo (реалистичная)",
+    "sys_batt_start":"Начать разряд","sys_batt_stop":"Стоп",
+    "sys_batt_reset":"Сброс к 12.6В","sys_batt_now":"Текущее напряжение",
+    "sys_batt_running":"РАЗРЯЖАЕТСЯ","sys_batt_idle":"Ожидание",
     "wind_spd":"Скорость (м/с)","wind_dir":"Направление (град)","wind_turb":"Турбулентность (м/с)",
     "wind_dir_z":"Верт. угол (град)",
     "apply":"Применить","reset":"Сброс","start":"Старт","stop":"Стоп",
@@ -134,20 +154,84 @@ GPS_INT = {"weak":(0.0001,0.0001,5),"medium":(0.001,0.001,15),"strong":(0.005,0.
 
 # ── Tooltip ─────────────────────────────────────────────────
 class CTkTooltip:
+    _all = []  # global registry for force-hide
+
     def __init__(self, w, text):
         self.w, self.text, self.tw = w, text, None
-        w.bind("<Enter>", self._show); w.bind("<Leave>", self._hide)
-    def _show(self, _=None):
+        self._after_id = None
+        self._poll_id = None
+        w.bind("<Enter>", self._enter)
+        w.bind("<Leave>", self._hide)
+        w.bind("<ButtonPress>", self._hide)
+        w.bind("<Destroy>", self._hide)
+        CTkTooltip._all.append(self)
+
+    def _enter(self, _=None):
+        self._cancel()
+        self._after_id = self.w.after(450, self._show)
+
+    def _show(self):
         if self.tw: return
-        x, y = self.w.winfo_rootx()+15, self.w.winfo_rooty()+self.w.winfo_height()+5
+        try:
+            if not self.w.winfo_exists() or not self.w.winfo_viewable():
+                return
+        except Exception:
+            return
+        x = self.w.winfo_rootx() + 15
+        y = self.w.winfo_rooty() + self.w.winfo_height() + 5
         self.tw = tw = ctk.CTkToplevel(self.w)
-        tw.wm_overrideredirect(True); tw.wm_geometry(f"+{x}+{y}")
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
         tw.configure(fg_color="#1a1a2e")
-        ctk.CTkLabel(tw, text=self.text, font=("Segoe UI",11), text_color="#a0a0c0",
+        tw.attributes("-topmost", True)
+        ctk.CTkLabel(tw, text=self.text, font=("Segoe UI", 11), text_color="#a0a0c0",
                      fg_color="#1a1a2e", corner_radius=6, padx=10, pady=6).pack()
+        # auto-hide safety + mouse tracking
+        self._after_id = self.w.after(6000, self._hide)
+        self._poll_id = self.w.after(150, self._poll)
+
+    def _poll(self):
+        """Hide if mouse is no longer over the original widget."""
+        if not self.tw:
+            return
+        try:
+            import tkinter
+            px = self.w.winfo_pointerx()
+            py = self.w.winfo_pointery()
+            wx1 = self.w.winfo_rootx()
+            wy1 = self.w.winfo_rooty()
+            wx2 = wx1 + self.w.winfo_width()
+            wy2 = wy1 + self.w.winfo_height()
+            if not (wx1 <= px <= wx2 and wy1 <= py <= wy2):
+                self._hide()
+                return
+        except Exception:
+            self._hide()
+            return
+        self._poll_id = self.w.after(150, self._poll)
+
     def _hide(self, _=None):
-        if self.tw: self.tw.destroy(); self.tw = None
-    def set(self, t): self.text = t
+        self._cancel()
+        if self.tw:
+            try: self.tw.destroy()
+            except Exception: pass
+            self.tw = None
+
+    def _cancel(self):
+        for attr in ("_after_id", "_poll_id"):
+            aid = getattr(self, attr, None)
+            if aid:
+                try: self.w.after_cancel(aid)
+                except Exception: pass
+                setattr(self, attr, None)
+
+    def set(self, t):
+        self.text = t
+
+    @classmethod
+    def hide_all(cls):
+        for t in cls._all:
+            t._hide()
 
 
 # ── MAVLink ─────────────────────────────────────────────────
@@ -184,7 +268,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.lang = "en"; self.conn = Conn(); self.tips = []
-        self._spoof = False; self._complex = False
+        self._spoof = False; self._complex = False; self._batt_running = False
         self.title("SITL Fault Injection"); self.geometry("780x700")
         self.configure(fg_color=C_BG)
         self._build()
@@ -230,12 +314,18 @@ class App(ctk.CTk):
                                        corner_radius=12)
         self.tabview.pack(fill="both", expand=True, padx=12, pady=(0,10))
 
-        self._tab_keys = ["tab_wind","tab_gps","tab_baro","tab_pitot","tab_sensors","tab_complex"]
+        self._tab_keys = ["tab_wind","tab_gps","tab_baro","tab_pitot","tab_sensors","tab_complex","tab_system"]
         for k in self._tab_keys:
             self.tabview.add(self._s(k))
 
         self._build_wind(); self._build_gps(); self._build_baro()
         self._build_pitot(); self._build_sensors(); self._build_complex()
+        self._build_system()
+
+        # global safety: hide any lingering tooltips when window loses focus/moves
+        self.bind("<FocusOut>", lambda e: CTkTooltip.hide_all())
+        self.bind("<Configure>", lambda e: CTkTooltip.hide_all())
+        self.bind("<Unmap>", lambda e: CTkTooltip.hide_all())
 
     def _card(self, parent, **kw):
         return ctk.CTkFrame(parent, fg_color=C_CARD, corner_radius=10, **kw)
@@ -243,11 +333,13 @@ class App(ctk.CTk):
     def _slider_row(self, parent, label, var, from_, to, row, tip_key=None):
         lbl = ctk.CTkLabel(parent, text=label, font=("Segoe UI",12), text_color=C_TXT, anchor="w")
         lbl.grid(row=row, column=0, sticky="w", padx=12, pady=6)
-        sl = ctk.CTkSlider(parent, from_=from_, to=to, variable=var, width=260,
+        sl = ctk.CTkSlider(parent, from_=from_, to=to, variable=var, width=220,
                            fg_color=C_SURF, progress_color=C_ACC, button_color=C_ACC2, button_hover_color="#a5b4fc")
         sl.grid(row=row, column=1, padx=8, pady=6)
-        val = ctk.CTkLabel(parent, textvariable=var, font=("JetBrains Mono",11), text_color=C_DIM, width=50)
-        val.grid(row=row, column=2, padx=(0,12), pady=6)
+        # editable entry bound to the same var - allows typing exact values
+        e = ctk.CTkEntry(parent, textvariable=var, width=70, height=26, fg_color=C_INP,
+                         border_width=0, font=("JetBrains Mono",11), justify="center")
+        e.grid(row=row, column=2, padx=(0,12), pady=6)
         if tip_key: self._tip(lbl, tip_key); self._tip(sl, tip_key)
         return lbl
 
@@ -613,6 +705,153 @@ class App(ctk.CTk):
             except: self._complex=False; break
             time.sleep(0.5)
 
+    # ═══ SYSTEM (sim speed + battery) ═══════════════════════
+    def _build_system(self):
+        tab = self._tab("tab_system")
+        sc = ctk.CTkScrollableFrame(tab, fg_color=C_BG)
+        sc.pack(fill="both", expand=True)
+
+        # ── Simulation Speed ──
+        c1 = self._card(sc); c1.pack(fill="x", padx=8, pady=6)
+        self._lbl_sys_speed = ctk.CTkLabel(c1, text="Simulation Speed",
+                                            font=("Segoe UI",13,"bold"), text_color=C_ACC)
+        self._lbl_sys_speed.grid(row=0, column=0, columnspan=3, sticky="w", padx=12, pady=(10,4))
+
+        self.sim_speedup = ctk.DoubleVar(value=1.0)
+        self._sys_sl = []
+        self._sys_sl.append(self._slider_row(c1, "Speed multiplier", self.sim_speedup, 0.1, 20, 1))
+
+        # preset buttons
+        pf = ctk.CTkFrame(c1, fg_color="transparent")
+        pf.grid(row=2, column=0, columnspan=3, padx=12, pady=(2,8), sticky="w")
+        self._lbl_presets = ctk.CTkLabel(pf, text="Presets", font=("Segoe UI",11), text_color=C_DIM)
+        self._lbl_presets.pack(side="left", padx=(0,8))
+        for mult in (0.5, 1, 2, 5, 10):
+            b = ctk.CTkButton(pf, text=f"{mult}x", width=44, height=26, corner_radius=6,
+                               fg_color=C_SURF, hover_color=C_INP, font=("JetBrains Mono",11),
+                               command=lambda m=mult: self._set_speedup(m))
+            b.pack(side="left", padx=3)
+
+        self.btn_speed_apply = self._btn(c1, "Apply", self._apply_speedup)
+        self.btn_speed_apply.grid(row=3, column=0, columnspan=3, pady=(4,10))
+
+        # ── Battery Simulation ──
+        c2 = self._card(sc); c2.pack(fill="x", padx=8, pady=6)
+        self._lbl_sys_batt = ctk.CTkLabel(c2, text="Battery Simulation",
+                                           font=("Segoe UI",13,"bold"), text_color=C_ACC)
+        self._lbl_sys_batt.grid(row=0, column=0, columnspan=3, sticky="w", padx=12, pady=(10,4))
+
+        self.batt_start_v = ctk.DoubleVar(value=12.6)
+        self.batt_end_v = ctk.DoubleVar(value=10.5)
+        self.batt_time_min = ctk.DoubleVar(value=15.0)
+        self.batt_cap_ah = ctk.DoubleVar(value=5.0)
+
+        self._batt_lbls = []
+        self._batt_lbls.append(self._slider_row(c2, "Start voltage (V)", self.batt_start_v, 8.0, 25.2, 1))
+        self._batt_lbls.append(self._slider_row(c2, "End voltage (V)", self.batt_end_v, 6.0, 20.0, 2))
+        self._batt_lbls.append(self._slider_row(c2, "Discharge time (min)", self.batt_time_min, 0.5, 120, 3))
+        self._batt_lbls.append(self._slider_row(c2, "Capacity (Ah)", self.batt_cap_ah, 0.5, 50, 4))
+
+        # curve selector
+        self.batt_curve = ctk.StringVar(value="lipo")
+        cf = ctk.CTkFrame(c2, fg_color="transparent")
+        cf.grid(row=5, column=0, columnspan=3, padx=12, pady=6, sticky="w")
+        self._lbl_curve = ctk.CTkLabel(cf, text="Curve", font=("Segoe UI",11), text_color=C_DIM)
+        self._lbl_curve.pack(side="left", padx=(0,10))
+        self._rb_curve = {}
+        for v in ("lipo", "linear"):
+            rb = ctk.CTkRadioButton(cf, text=v, variable=self.batt_curve, value=v,
+                                     fg_color=C_ACC, font=("Segoe UI",11))
+            rb.pack(side="left", padx=6); self._rb_curve[v] = rb
+
+        # current voltage display
+        self._lbl_batt_now = ctk.CTkLabel(c2, text="Current: —",
+                                           font=("JetBrains Mono",14,"bold"), text_color=C_GRN)
+        self._lbl_batt_now.grid(row=6, column=0, columnspan=3, pady=(4,2))
+
+        bf = ctk.CTkFrame(c2, fg_color="transparent")
+        bf.grid(row=7, column=0, columnspan=3, pady=(4,12))
+        self.btn_batt_start = self._btn(bf, "Start Discharge", self._start_batt)
+        self.btn_batt_start.pack(side="left", padx=4)
+        self.btn_batt_stop = self._btn(bf, "Stop", self._stop_batt, C_RED, "#dc2626")
+        self.btn_batt_stop.pack(side="left", padx=4)
+        self.btn_batt_reset = self._btn(bf, "Reset", self._reset_batt, C_SURF, C_INP)
+        self.btn_batt_reset.pack(side="left", padx=4)
+
+    def _set_speedup(self, m):
+        self.sim_speedup.set(m)
+        self._apply_speedup()
+
+    def _apply_speedup(self):
+        self._safe(lambda: self.conn.sp("SIM_SPEEDUP", self.sim_speedup.get()))
+
+    def _start_batt(self):
+        if self._batt_running: return
+        if not self.conn.ok:
+            messagebox.showwarning("", self._s("no_conn")); return
+        try:
+            v_start = float(self.batt_start_v.get())
+            v_end = float(self.batt_end_v.get())
+            t_min = float(self.batt_time_min.get())
+            cap = float(self.batt_cap_ah.get())
+        except Exception:
+            return
+        if t_min <= 0 or v_start <= v_end:
+            messagebox.showerror("Error", "Time must be > 0 and start > end voltage.")
+            return
+        self._batt_running = True
+        self._lbl_batt_now.configure(text_color=C_RED)
+        # set initial voltage and capacity once
+        try:
+            self.conn.sp("SIM_BATT_CAP_AH", cap)
+            self.conn.sp("SIM_BATT_VOLTAGE", v_start)
+        except Exception as e:
+            messagebox.showerror("Error", str(e)); self._batt_running = False; return
+        threading.Thread(target=self._batt_loop, args=(v_start, v_end, t_min), daemon=True).start()
+
+    def _stop_batt(self):
+        self._batt_running = False
+        self._lbl_batt_now.configure(text_color=C_GRN)
+
+    def _reset_batt(self):
+        self._stop_batt()
+        self._safe(lambda: self.conn.sp("SIM_BATT_VOLTAGE", 12.6))
+        self._lbl_batt_now.configure(text="Current: 12.60 V", text_color=C_GRN)
+
+    def _batt_loop(self, v_start, v_end, t_min):
+        """Continuously update SIM_BATT_VOLTAGE so it drops from v_start to v_end over t_min real minutes.
+        Uses a simple LiPo-like curve (3 phases) or linear depending on selection."""
+        t_total = t_min * 60.0
+        t0 = time.time()
+        tick = 0.5  # seconds
+        while self._batt_running and self.conn.ok:
+            elapsed = time.time() - t0
+            frac = min(elapsed / t_total, 1.0)
+            if self.batt_curve.get() == "linear":
+                v = v_start - (v_start - v_end) * frac
+            else:
+                # LiPo-like: fast initial drop, long plateau, sharp end drop
+                # three-segment: 0-10% drops 25%, 10-85% drops 40%, 85-100% drops 35%
+                if frac < 0.10:
+                    p = frac / 0.10
+                    v = v_start - (v_start - v_end) * 0.25 * p
+                elif frac < 0.85:
+                    p = (frac - 0.10) / 0.75
+                    v = v_start - (v_start - v_end) * (0.25 + 0.40 * p)
+                else:
+                    p = (frac - 0.85) / 0.15
+                    v = v_start - (v_start - v_end) * (0.65 + 0.35 * p)
+            try:
+                self.conn.sp("SIM_BATT_VOLTAGE", v)
+                self.after(0, lambda vv=v: self._lbl_batt_now.configure(text=f"Current: {vv:.2f} V"))
+            except Exception:
+                self._batt_running = False; break
+            if frac >= 1.0:
+                self._batt_running = False
+                self.after(0, lambda: self._lbl_batt_now.configure(text_color=C_RED))
+                break
+            time.sleep(tick)
+
     # ── Connection ──────────────────────────────────────────
     def _toggle_conn(self):
         if self.conn.ok:
@@ -682,6 +921,20 @@ class App(ctk.CTk):
         for v in ["gps_denied","sensor_deg","full_spoof","icing"]: self._rb_cx[v].configure(text=s[v])
         self.btn_cxs.configure(text=s["start"]); self.btn_cxr.configure(text=s["stop"])
         self.cx_status.configure(text=s["active"] if self._complex else s["stopped"])
+        # system
+        self._lbl_sys_speed.configure(text=s["sys_sim_speed"])
+        self._sys_sl[0].configure(text=s["sys_speedup"])
+        self._lbl_presets.configure(text=s["sys_speed_presets"])
+        self.btn_speed_apply.configure(text=s["apply"])
+        self._lbl_sys_batt.configure(text=s["sys_batt"])
+        bk = ["sys_batt_start_v","sys_batt_end_v","sys_batt_time","sys_batt_cap"]
+        for lbl, k in zip(self._batt_lbls, bk): lbl.configure(text=s[k])
+        self._lbl_curve.configure(text=s["sys_batt_curve"])
+        self._rb_curve["lipo"].configure(text=s["sys_batt_lipo"])
+        self._rb_curve["linear"].configure(text=s["sys_batt_linear"])
+        self.btn_batt_start.configure(text=s["sys_batt_start"])
+        self.btn_batt_stop.configure(text=s["sys_batt_stop"])
+        self.btn_batt_reset.configure(text=s["sys_batt_reset"])
         # tooltips
         for tip,k in self.tips: tip.set(s.get(k,k))
 
